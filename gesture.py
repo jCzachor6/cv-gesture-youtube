@@ -1,15 +1,51 @@
 import cv2
 import numpy as np
 import math
+import json
 import time
+import shortcuts as sc
 
-cap = cv2.VideoCapture(0)
 
 message_counter = 0
 counter = 0
-values = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+values = [0, 0, 0]
 last_value = 0
 
+#Przechowywanie wartości z trzech ostatnich klatek.
+def count(counter, current_value):
+    values[counter] = current_value
+    counter += 1
+    if (counter == 3):
+        counter = 0
+    return counter
+
+#Przerwanie działania programu po wciśnięciu przycisku Escape
+def quit_on_esc():
+    k = cv2.waitKey(10)
+    if k == 27:
+        return True
+    else:
+        return False
+
+#Odczytywanie polega na pobraniu maksymalnej wartości ilości kropek z ostatnich 3 klatek, a następnie gdy
+#ilość zmieni się na 0 to wywołuje odpowiadającą funkcje gestu.
+def retreive_gesture(last_value, message_counter):
+    if(current_value!= values[counter] and current_value == 0):
+        val = max(values)
+        if(last_value != val):
+            print(json_message(message_counter, val))
+            sc.call_shortcut(val)
+            message_counter += 1
+            last_value = val
+        else:
+            last_value = -1
+    return last_value, message_counter
+
+#Wypisanie gestu w formacie JSON
+def json_message(message_counter, message_type):
+    return json.dumps({'count': message_counter, 'message': message_type})
+
+cap = cv2.VideoCapture(0)
 while (cap.isOpened()):
     ret, img = cap.read()
     cv2.rectangle(img, (300, 300), (100, 100), (0, 255, 0), 0)
@@ -37,37 +73,32 @@ while (cap.isOpened()):
     defects = cv2.convexityDefects(cnt, hull)
     current_value = 0
     cv2.drawContours(thresh1, contours, -1, (0, 255, 0), 3)
-    for i in range(defects.shape[0]):
-        s, e, f, d = defects[i, 0]
-        start = tuple(cnt[s][0])
-        end = tuple(cnt[e][0])
-        far = tuple(cnt[f][0])
-        a = math.sqrt((end[0] - start[0]) ** 2 + (end[1] - start[1]) ** 2)
-        b = math.sqrt((far[0] - start[0]) ** 2 + (far[1] - start[1]) ** 2)
-        c = math.sqrt((end[0] - far[0]) ** 2 + (end[1] - far[1]) ** 2)
-        angle = math.acos((b ** 2 + c ** 2 - a ** 2) / (2 * b * c)) * 57
-        if angle <= 90:
-            current_value += 1
-            cv2.circle(crop_img, far, 1, [0, 0, 255], -1)
-        cv2.line(crop_img, start, end, [0, 255, 0], 2)
+    if(defects is not None):
+        for i in range(defects.shape[0]):
+            s, e, f, d = defects[i, 0]
+            start = tuple(cnt[s][0])
+            end = tuple(cnt[e][0])
+            far = tuple(cnt[f][0])
+            a = math.sqrt((end[0] - start[0]) ** 2 + (end[1] - start[1]) ** 2)
+            b = math.sqrt((far[0] - start[0]) ** 2 + (far[1] - start[1]) ** 2)
+            c = math.sqrt((end[0] - far[0]) ** 2 + (end[1] - far[1]) ** 2)
+            angle = math.acos((b ** 2 + c ** 2 - a ** 2) / (2 * b * c)) * 57
+            if angle <= 90:
+                current_value += 1
+                cv2.circle(crop_img, far, 1, [0, 0, 255], -1)
+            cv2.line(crop_img, start, end, [0, 255, 0], 2)
 
-    values[counter] = current_value
-    counter += 1
-    if (counter == 10):
-        counter = 0
+    counter = count(counter, current_value)
 
-    if(current_value!= values[counter] and current_value == 0):
-        val = max(values)
-        if(last_value != val):
-            print('MESSAGE NR: ' + str(message_counter) + ' VALUE: ' + str(val))
-            message_counter += 1
-            last_value = val
+    #Odczytaj gest
+    last_value, message_counter = retreive_gesture(last_value, message_counter)
 
+    #Wyświetl obraz z kamery
     cv2.imshow('Gesture', img)
+    #Złóż rysunek 'drawing' i 'crop_img' w jeden i wyświetl
     all_img = np.hstack((drawing, crop_img))
     cv2.imshow('Contours', all_img)
-    k = cv2.waitKey(10)
-    if k == 27:
-        break
 
+    if quit_on_esc():
+        break
     time.sleep(0.05)
